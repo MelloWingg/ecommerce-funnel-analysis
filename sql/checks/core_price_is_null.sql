@@ -1,1 +1,0 @@
-SELECT COUNT(*) FROM core.events WHERE price IS NULL;

@@ -1,0 +1,1 @@
+SELECT COUNT(*) FROM core.events WHERE price <= 0;

@@ -1,6 +1,7 @@
 import io
 import os
 import logging
+import time
 
 import pandas as pd
 import psycopg2
@@ -12,9 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent   # корінь проєкт�
 SQL_DIR = BASE_DIR / "sql"
 CSV_PATH = BASE_DIR / "data" / "2019-Nov.csv" / "2019-Nov.csv"
 CHECKS_DIR = BASE_DIR / "sql" / "checks"
+METRICS_DIR = BASE_DIR / "sql" / "metrics"
 
-CHUNK_SIZE = 25_000
-ROW_LIMIT = 100_000
+CHUNK_SIZE = 200_000
+ROW_LIMIT = 5_000_000
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -37,9 +39,10 @@ def load_raw(conn, limit = None) :
 
         for chunk in pd.read_csv(CSV_PATH, dtype=str, chunksize=CHUNK_SIZE):
             # 1. cut the chunk if it goes over the limit
-            remaining = limit - total_loaded
-            if len(chunk) > remaining:
-                chunk = chunk.iloc[:remaining]
+            if limit is not None:
+                remaining = limit - total_loaded
+                if len(chunk) > remaining:
+                    chunk = chunk.iloc[:remaining]
 
             # 2. pack the chunk into an in-memory CSV
             buffer = io.StringIO()
@@ -51,14 +54,15 @@ def load_raw(conn, limit = None) :
 
             # 4. count only what was actually loaded
             total_loaded += len(chunk)
-            print(f"Loaded: {total_loaded}")
+            # print(f"Loaded: {total_loaded}")
+            logging.info(f"Loaded: {total_loaded}")
 
             # 5. stop when the limit is reached
-            if total_loaded >= limit:
+            if limit is not None and total_loaded >= limit:
                 break
 
     conn.commit()
-    print(f"Done. Total rows loaded: {total_loaded}")
+    logging.info(f"Done. Total rows loaded: {total_loaded}")
 
 
 def run_sql_file(conn, path) :
@@ -89,13 +93,45 @@ def check_quality(conn):
     for path in sorted(CHECKS_DIR.glob("*.sql")):
         run_check(conn, path)
 
+def fetch_number(conn, sql):
+    # run a query that returns a single number and give it back
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        return cur.fetchone()[0]
+
+def log_data_metrics(conn):
+    for path in sorted(METRICS_DIR.glob("*.sql")):
+        sql = path.read_text(encoding="utf-8")
+        value = fetch_number(conn, sql)
+        logging.info("Metric %s: %s", path.stem, value)
+
 def main() :
     conn = get_connection()
     try:
+        start_time = time.perf_counter()
         load_raw(conn, ROW_LIMIT)
+        elapsed = time.perf_counter() - start_time
+        logging.info("load_raw completed in %.2f seconds", elapsed)
+
+        start_time = time.perf_counter()
         run_sql_file(conn, SQL_DIR / "04_staging.sql")
+        elapsed = time.perf_counter() - start_time
+        logging.info("run_sql_04_staging completed in %.2f seconds", elapsed)
+
+        start_time = time.perf_counter()
         run_sql_file(conn, SQL_DIR / "05_load_core.sql")
+        elapsed = time.perf_counter() - start_time
+        logging.info("run_sql_05_load_core completed in %.2f seconds", elapsed)
+
+        start_time = time.perf_counter()
+        log_data_metrics(conn)
+        elapsed = time.perf_counter() - start_time
+        logging.info("log_data_metrics completed in %.2f seconds", elapsed)
+
+        start_time = time.perf_counter()
         check_quality(conn)
+        elapsed = time.perf_counter() - start_time
+        logging.info("check_quality completed in %.2f seconds", elapsed)
     finally:
         conn.close()
 

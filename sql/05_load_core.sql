@@ -6,12 +6,13 @@ INSERT INTO core.products (
     category_code,
     brand
 )
-SELECT DISTINCT
+SELECT
     product_id,
-    category_id,
-    category_code,
-    brand
-FROM staging.events;
+    (array_agg(category_id ORDER BY event_time DESC) FILTER (WHERE category_id IS NOT NULL))[1],
+    (array_agg(category_code ORDER BY event_time DESC) FILTER (WHERE category_code IS NOT NULL))[1],
+    (array_agg(brand ORDER BY event_time DESC) FILTER (WHERE brand IS NOT NULL))[1]
+FROM staging.events
+GROUP BY product_id;
 
 INSERT INTO core.events (
     event_time,

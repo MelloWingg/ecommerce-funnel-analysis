@@ -15,8 +15,8 @@ CSV_PATH = BASE_DIR / "data" / "2019-Nov.csv" / "2019-Nov.csv"
 CHECKS_DIR = BASE_DIR / "sql" / "checks"
 METRICS_DIR = BASE_DIR / "sql" / "metrics"
 
-CHUNK_SIZE = 200_000
-ROW_LIMIT = 5_000_000
+CHUNK_SIZE = 500_000
+ROW_LIMIT = None
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")

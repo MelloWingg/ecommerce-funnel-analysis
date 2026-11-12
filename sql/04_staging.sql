@@ -13,7 +13,8 @@ SELECT DISTINCT
     NULLIF(brand::TEXT, '') AS brand,
     user_id::BIGINT,
     user_session::UUID
-FROM raw.events;
+FROM raw.events
+WHERE user_session IS NOT NULL;
 
 
 

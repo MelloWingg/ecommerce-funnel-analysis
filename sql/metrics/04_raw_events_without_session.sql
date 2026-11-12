@@ -1,0 +1,1 @@
+SELECT count(*) FROM raw.events WHERE user_session IS NULL;

@@ -1,0 +1,1 @@
+   DELETE FROM staging.events WHERE user_session IS NULL;

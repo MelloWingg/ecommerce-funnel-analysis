@@ -160,7 +160,9 @@ weekly_stats AS (
 		avg(unique_session  ) AS avg_sessions,
 		avg(purchase  ) AS avg_purchase,
 		avg(sum_purchase  ) AS revenue,
-		sum(sum_purchase )::NUMERIC / sum(purchase )::NUMERIC AS avg_purchase_price
+		sum(sum_purchase )::NUMERIC / sum(purchase )::NUMERIC AS avg_purchase_price,
+		STDDEV(unique_users) / AVG(unique_users) AS variation_users,
+		STDDEV(unique_session) / AVG(unique_session) AS variation_session
 	FROM weeks
 	GROUP BY 1
 	),
@@ -187,7 +189,9 @@ combined as(
 		ws.avg_purchase,
 		ws.revenue,
 		ws.avg_purchase_price,
-		wm.median_price
+		wm.median_price,
+		ws.variation_users,
+		ws.variation_session
 	FROM weekly_stats ws
 	LEFT JOIN weekly_median wm ON ws.weeks = wm.weeks 
 	),
@@ -205,7 +209,9 @@ comparison AS (
 		round(((week_2.avg_purchase_price - week_1.avg_purchase_price )
 			* 100 / nullif(week_1.avg_purchase_price, 0))::numeric,2) AS avg_purchase_price,
 		round(((week_2.median_price - week_1.median_price )
-			* 100 / nullif(week_1.median_price, 0))::numeric,2) AS median_price
+			* 100 / nullif(week_1.median_price, 0))::numeric,2) AS median_price,
+			0 AS variation_users,
+			0 AS variation_session
 	FROM combined week_1
 	CROSS JOIN combined week_2
 	WHERE week_1.weeks = 'week_1'
@@ -217,7 +223,96 @@ SELECT weeks,
 	round(avg_purchase::numeric,0) AS avg_purchase,
 	round(revenue::numeric,0) AS revenue,
 	round(avg_purchase_price::numeric,2) AS avg_purchase_price,
-	round(median_price::numeric,2) AS median_price
+	round(median_price::numeric,2) AS median_price,
+	variation_users,
+	variation_session
+FROM combined
+UNION ALL
+SELECT * FROM comparison;
+
+WITH days_in_scope as(
+	SELECT *,
+		CASE 
+			WHEN day BETWEEN '2019-11-04' AND '2019-11-10' THEN 'week_1' 
+			WHEN day BETWEEN '2019-11-22' AND '2019-11-28' THEN 'week_2' 
+		END AS weeks
+	FROM marts.daily_overview
+	WHERE day >= '2019-11-04' AND day < '2019-11-11'
+		OR day >= '2019-11-22' AND day < '2019-11-29'
+	),
+weekly_stats AS (
+	SELECT 
+		weeks,
+		avg(unique_users ) AS avg_users,
+		avg(unique_session  ) AS avg_sessions,
+		avg(purchase  ) AS avg_daily_purchases,
+		avg(sum_purchase  ) AS avg_daily_revenue,
+		sum(sum_purchase )::NUMERIC / sum(purchase )::NUMERIC AS avg_purchase_price,
+		STDDEV(unique_users) / AVG(unique_users) AS variation_users,
+		STDDEV(unique_session) / AVG(unique_session) AS variation_session
+	FROM days_in_scope
+	GROUP BY 1
+	),
+weekly_median AS (
+	SELECT 
+		CASE 
+			WHEN (event_time AT TIME ZONE 'UTC')::date BETWEEN '2019-11-04' AND '2019-11-10' THEN 'week_1' 
+			WHEN (event_time AT TIME ZONE 'UTC')::date BETWEEN '2019-11-22' AND '2019-11-28' THEN 'week_2' 
+		END AS weeks,
+		percentile_cont(0.5) WITHIN GROUP (ORDER BY price) AS median_price
+	FROM core.events 
+	WHERE event_type = 'purchase'
+	        AND (event_time >= '2019-11-04 00:00:00+00' AND event_time < '2019-11-11 00:00:00+00'
+				OR
+				event_time >= '2019-11-22 00:00:00+00' AND event_time < '2019-11-29 00:00:00+00'
+	        )
+	GROUP BY 1
+	),
+combined as(
+	SELECT 
+		ws.weeks,
+		ws.avg_users, 
+		ws.avg_sessions, 
+		ws.avg_daily_purchases,
+		ws.avg_daily_revenue,
+		ws.avg_purchase_price,
+		wm.median_price,
+		ws.variation_users,
+		ws.variation_session
+	FROM weekly_stats ws
+	LEFT JOIN weekly_median wm ON ws.weeks = wm.weeks 
+	),
+comparison AS (
+	SELECT 
+		'change_percent' AS weeks,
+		round(((week_2.avg_users - week_1.avg_users )
+			* 100 / nullif(week_1.avg_users, 0))::numeric,2) AS avg_users,
+		round(((week_2.avg_sessions - week_1.avg_sessions )
+			* 100 / nullif(week_1.avg_sessions, 0))::numeric,2) AS avg_sessions,
+		round(((week_2.avg_daily_purchases - week_1.avg_daily_purchases )
+			* 100 / nullif(week_1.avg_daily_purchases, 0))::numeric,2) AS avg_daily_purchases,
+		round(((week_2.avg_daily_revenue - week_1.avg_daily_revenue )
+			* 100 / nullif(week_1.avg_daily_revenue, 0))::NUMERIC, 2) AS avg_daily_revenue,
+		round(((week_2.avg_purchase_price - week_1.avg_purchase_price )
+			* 100 / nullif(week_1.avg_purchase_price, 0))::numeric,2) AS avg_purchase_price,
+		round(((week_2.median_price - week_1.median_price )
+			* 100 / nullif(week_1.median_price, 0))::numeric,2) AS median_price,
+			0 AS variation_users,
+			0 AS variation_session
+	FROM combined week_1
+	CROSS JOIN combined week_2
+	WHERE week_1.weeks = 'week_1'
+	        AND week_2.weeks = 'week_2'
+	)
+SELECT weeks,
+	round(avg_users::numeric,0) AS avg_users,
+	round(avg_sessions::numeric,0) AS avg_sessions,
+	round(avg_daily_purchases::numeric,0) AS avg_daily_purchases,
+	round(avg_daily_revenue::numeric,0) AS avg_daily_revenue,
+	round(avg_purchase_price::numeric,2) AS avg_purchase_price,
+	round(median_price::numeric,2) AS median_price,
+	variation_users,
+	variation_session
 FROM combined
 UNION ALL
 SELECT * FROM comparison;
